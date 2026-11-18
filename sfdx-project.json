@@ -1,3 +1,4 @@
+
 {
   "packageDirectories": [
     {
@@ -14,5 +15,13 @@
   "sourceApiVersion": "66.0",
   "packageAliases": {
     "CustomMetadataPackage": "0Hoaj0000007HH3CAM"
-  }
+  },
+  "replacements": [
+    {
+      "filename": "force-app/main/default/customMetadata/Deployment_Settings.Development.md-meta.xml",
+      "stringToReplace": "__ENVIRONMENT_PLACEHOLDER__",
+      "replaceWithEnv": "ENVIRONMENT_NAME",
+      "allowUnsetEnvVariable": false
+    }
+  ]
 }

@@ -116,86 +116,7 @@ jobs:
           sf org display --target-org devhub
 
       # --------------------------------------------------
-      # 8. Inject GitHub Environment Secret
-      # --------------------------------------------------
-      - name: Inject Environment Configuration
-        env:
-          ENVIRONMENT_VALUE: ${{ secrets.ENVIRONMENT_NAME }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import re
-          import xml.etree.ElementTree as ET
-          from pathlib import Path
-
-          file_path = Path(
-              "force-app/main/default/customMetadata/"
-              "Deployment_Settings.Development.md-meta.xml"
-          )
-
-          placeholder = "__ENVIRONMENT_PLACEHOLDER__"
-          environment_value = os.environ.get(
-              "ENVIRONMENT_VALUE", ""
-          ).strip()
-
-          if not environment_value:
-              raise SystemExit(
-                  "ERROR: ENVIRONMENT_NAME secret is empty."
-              )
-
-          if not re.fullmatch(
-              r"[A-Za-z0-9 _-]+",
-              environment_value
-          ):
-              raise SystemExit(
-                  "ERROR: ENVIRONMENT_NAME must contain only "
-                  "letters, numbers, spaces, underscores, or hyphens."
-              )
-
-          if not file_path.exists():
-              raise SystemExit(
-                  f"ERROR: Metadata file not found: {file_path}"
-              )
-
-          content = file_path.read_text(encoding="utf-8")
-
-          if content.count(placeholder) != 1:
-              raise SystemExit(
-                  "ERROR: Expected exactly one environment placeholder."
-              )
-
-          # Validate original XML before modifying it.
-          try:
-              ET.fromstring(content)
-          except ET.ParseError as error:
-              raise SystemExit(
-                  f"ERROR: Original Custom Metadata XML is invalid: {error}"
-              )
-
-          # Replace only the environment placeholder.
-          content = content.replace(
-              placeholder,
-              environment_value
-          )
-
-          # Validate final XML before package creation.
-          try:
-              ET.fromstring(content)
-          except ET.ParseError as error:
-              raise SystemExit(
-                  f"ERROR: XML validation failed after injection: {error}"
-              )
-
-          file_path.write_text(content, encoding="utf-8")
-
-          print("Environment configuration injected successfully.")
-          print("Original XML validation passed.")
-          print("Final XML validation passed.")
-          print("Environment value was not displayed.")
-          PY
-
-      # --------------------------------------------------
-      # 9. Create package if it does not exist
+      # 8. Create package if it does not exist
       # --------------------------------------------------
       - name: Create Unlocked Package
         run: |
@@ -255,12 +176,20 @@ jobs:
           echo "Package ID: $PACKAGE_ID"
 
       # --------------------------------------------------
-      # 10. Create 2GP package version
+      # 9. Create 2GP package version
       # --------------------------------------------------
       - name: Create 2GP Package Version
+        env:
+          ENVIRONMENT_NAME: ${{ vars.ENVIRONMENT_NAME }}
         run: |
           set +e
 
+          if [ -z "$ENVIRONMENT_NAME" ]; then
+            echo "ERROR: ENVIRONMENT_NAME is not configured in GitHub Environment QA."
+            exit 1
+          fi
+
+          echo "Environment configuration available."
           echo "Creating package version for:"
           echo "Package ID: $PACKAGE_ID"
 
@@ -302,7 +231,7 @@ jobs:
           echo "Subscriber Package Version ID: $PACKAGE_VERSION_ID"
 
       # --------------------------------------------------
-      # 11. Install package into Dev Hub org
+      # 10. Install package into Dev Hub org
       # --------------------------------------------------
       - name: Install Package
         run: |
@@ -315,7 +244,7 @@ jobs:
             --no-prompt
 
       # --------------------------------------------------
-      # 12. Verify package installation
+      # 11. Verify package installation
       # --------------------------------------------------
       - name: Verify Package Installation
         run: |
@@ -323,7 +252,7 @@ jobs:
             --target-org devhub
 
       # --------------------------------------------------
-      # 13. Cleanup private key
+      # 12. Cleanup private key
       # --------------------------------------------------
       - name: Cleanup JWT Key
         if: always()
