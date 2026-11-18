@@ -1,11 +1,19 @@
+
 {
   "packageDirectories": [
     {
       "path": "force-app",
-      "default": true
+      "default": true,
+      "package": "CustomMetadataPackage",
+      "versionName": "Version 1.0",
+      "versionNumber": "1.0.0.NEXT"
     }
   ],
+  "name": "salesforce-cicd",
   "namespace": "",
   "sfdcLoginUrl": "https://login.salesforce.com",
-  "sourceApiVersion": "50.0"
+  "sourceApiVersion": "66.0",
+  "packageAliases": {
+    "CustomMetadataPackage": "0HoXXXXXXXXXXXX"
+  }
 }
