@@ -1,0 +1,60 @@
+
+name: Salesforce QA Deployment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-to-qa:
+    name: Deploy to Salesforce QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    environment: QA
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: |
+          npm install --global @salesforce/cli
+          sf --version
+
+      - name: Configure JWT Key
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/salesforce"
+          printf '%s' "$SF_JWT_KEY" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/salesforce/server.key"
+          chmod 600 "$RUNNER_TEMP/salesforce/server.key"
+
+      - name: Authenticate Salesforce QA
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_USERNAME: ${{ vars.SF_USERNAME }}
+          SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL }}
+        run: |
+          sf org login jwt \
+            --client-id "$SF_CLIENT_ID" \
+            --jwt-key-file "$RUNNER_TEMP/salesforce/server.key" \
+            --username "$SF_USERNAME" \
+            --instance-url "$SF_LOGIN_URL" \
+            --alias qa-org
+
+      - name: Deploy force-app to QA
+        run: |
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org qa-org \
+            --wait 60
+
+      - name: Cleanup JWT Key
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/salesforce/server.key"
