@@ -61,8 +61,7 @@ jobs:
       - name: Verify Salesforce Authentication
         run: |
           sf org display \
-            --target-org qa-org \
-            --verbose false
+            --target-org qa-org 
 
       # 6. Deploy force-app to QA
       - name: Deploy force-app to QA
