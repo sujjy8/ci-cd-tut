@@ -9,31 +9,41 @@ permissions:
 
 jobs:
   deploy-to-qa:
-    name: Deploy to Salesforce QA
+    name: Deploy force-app to Salesforce QA
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
     environment: QA
 
     steps:
+
+      # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # 2. Install Salesforce CLI
       - name: Install Salesforce CLI
         run: |
           npm install --global @salesforce/cli
           sf --version
 
+      # 3. Configure raw JWT private key
       - name: Configure JWT Key
         env:
           SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
         run: |
           mkdir -p "$RUNNER_TEMP/salesforce"
-          printf '%s' "$SF_JWT_KEY" \
-            | base64 --decode \
+
+          printf '%s\n' "$SF_JWT_KEY" \
             > "$RUNNER_TEMP/salesforce/server.key"
+
           chmod 600 "$RUNNER_TEMP/salesforce/server.key"
 
+          openssl pkey \
+            -in "$RUNNER_TEMP/salesforce/server.key" \
+            -noout
+
+      # 4. Authenticate Salesforce QA
       - name: Authenticate Salesforce QA
         env:
           SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
@@ -47,6 +57,14 @@ jobs:
             --instance-url "$SF_LOGIN_URL" \
             --alias qa-org
 
+      # 5. Display authenticated org information
+      - name: Verify Salesforce Authentication
+        run: |
+          sf org display \
+            --target-org qa-org \
+            --verbose false
+
+      # 6. Deploy force-app to QA
       - name: Deploy force-app to QA
         run: |
           sf project deploy start \
@@ -54,6 +72,7 @@ jobs:
             --target-org qa-org \
             --wait 60
 
+      # 7. Cleanup private key
       - name: Cleanup JWT Key
         if: always()
         run: |
