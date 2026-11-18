@@ -85,6 +85,16 @@ jobs:
           SF_USERNAME: ${{ vars.SF_USERNAME }}
           SF_DEVHUB_LOGIN_URL: ${{ vars.SF_DEVHUB_LOGIN_URL }}
         run: |
+          if [ -z "$SF_CLIENT_ID" ]; then
+            echo "ERROR: SF_DEVHUB_CLIENT_ID is empty."
+            exit 1
+          fi
+
+          if [ -z "$SF_USERNAME" ]; then
+            echo "ERROR: SF_USERNAME is empty."
+            exit 1
+          fi
+
           if [ -z "$SF_DEVHUB_LOGIN_URL" ]; then
             echo "ERROR: SF_DEVHUB_LOGIN_URL is empty."
             exit 1
@@ -124,21 +134,28 @@ jobs:
               --package-type Unlocked \
               --path force-app \
               --target-dev-hub devhub \
-              --json > "$RUNNER_TEMP/create-package.json"
+              --json > "$RUNNER_TEMP/create-package.json" 2>&1
+
+            COMMAND_STATUS=$?
+
+            if [ "$COMMAND_STATUS" -ne 0 ]; then
+              echo "ERROR: Package creation failed."
+              cat "$RUNNER_TEMP/create-package.json"
+              exit 1
+            fi
 
             PACKAGE_ID=$(jq -r \
               '.result.Id // empty' \
               "$RUNNER_TEMP/create-package.json")
 
             if [ -z "$PACKAGE_ID" ]; then
-              echo "ERROR: Package creation failed."
-              jq . "$RUNNER_TEMP/create-package.json"
+              echo "ERROR: Package ID not found."
+              cat "$RUNNER_TEMP/create-package.json"
               exit 1
             fi
 
             echo "Package created successfully."
 
-            # Update package alias in project file
             jq --arg id "$PACKAGE_ID" \
               '.packageAliases.CustomMetadataPackage = $id' \
               sfdx-project.json \
@@ -159,20 +176,40 @@ jobs:
       # --------------------------------------------------
       - name: Create 2GP Package Version
         run: |
+          set +e
+
+          echo "Creating package version for:"
+          echo "Package ID: $PACKAGE_ID"
+
           sf package version create \
             --package "$PACKAGE_ID" \
             --target-dev-hub devhub \
             --installation-key-bypass \
             --wait 60 \
-            --json > "$RUNNER_TEMP/package-version-result.json"
+            --json > "$RUNNER_TEMP/package-version-result.json" 2>&1
+
+          COMMAND_STATUS=$?
+
+          echo "=========================================="
+          echo "Salesforce CLI Package Version Output"
+          echo "=========================================="
+
+          cat "$RUNNER_TEMP/package-version-result.json"
+
+          echo "=========================================="
+
+          if [ "$COMMAND_STATUS" -ne 0 ]; then
+            echo "ERROR: Package version creation failed."
+            echo "Exit code: $COMMAND_STATUS"
+            exit 1
+          fi
 
           PACKAGE_VERSION_ID=$(jq -r \
             '.result.SubscriberPackageVersionId // empty' \
             "$RUNNER_TEMP/package-version-result.json")
 
           if [ -z "$PACKAGE_VERSION_ID" ]; then
-            echo "ERROR: Package version creation failed."
-            jq . "$RUNNER_TEMP/package-version-result.json"
+            echo "ERROR: Subscriber Package Version ID not found."
             exit 1
           fi
 
