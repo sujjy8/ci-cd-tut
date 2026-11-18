@@ -122,13 +122,10 @@ jobs:
         env:
           ENVIRONMENT_VALUE: ${{ secrets.ENVIRONMENT_NAME }}
         run: |
-          if [ -z "$ENVIRONMENT_VALUE" ]; then
-            echo "ERROR: ENVIRONMENT_NAME secret is empty."
-            exit 1
-          fi
-
           python3 - <<'PY'
           import os
+          import re
+          import xml.etree.ElementTree as ET
           from pathlib import Path
 
           file_path = Path(
@@ -137,7 +134,23 @@ jobs:
           )
 
           placeholder = "__ENVIRONMENT_PLACEHOLDER__"
-          environment_value = os.environ["ENVIRONMENT_VALUE"]
+          environment_value = os.environ.get(
+              "ENVIRONMENT_VALUE", ""
+          ).strip()
+
+          if not environment_value:
+              raise SystemExit(
+                  "ERROR: ENVIRONMENT_NAME secret is empty."
+              )
+
+          if not re.fullmatch(
+              r"[A-Za-z0-9 _-]+",
+              environment_value
+          ):
+              raise SystemExit(
+                  "ERROR: ENVIRONMENT_NAME must contain only "
+                  "letters, numbers, spaces, underscores, or hyphens."
+              )
 
           if not file_path.exists():
               raise SystemExit(
@@ -151,14 +164,33 @@ jobs:
                   "ERROR: Expected exactly one environment placeholder."
               )
 
+          # Validate original XML before modifying it.
+          try:
+              ET.fromstring(content)
+          except ET.ParseError as error:
+              raise SystemExit(
+                  f"ERROR: Original Custom Metadata XML is invalid: {error}"
+              )
+
+          # Replace only the environment placeholder.
           content = content.replace(
               placeholder,
               environment_value
           )
 
+          # Validate final XML before package creation.
+          try:
+              ET.fromstring(content)
+          except ET.ParseError as error:
+              raise SystemExit(
+                  f"ERROR: XML validation failed after injection: {error}"
+              )
+
           file_path.write_text(content, encoding="utf-8")
 
           print("Environment configuration injected successfully.")
+          print("Original XML validation passed.")
+          print("Final XML validation passed.")
           print("Environment value was not displayed.")
           PY
 
@@ -176,6 +208,8 @@ jobs:
             echo "Package not found in sfdx-project.json."
             echo "Creating unlocked package..."
 
+            set +e
+
             sf package create \
               --name "Custom Metadata Package" \
               --package-type Unlocked \
@@ -184,6 +218,8 @@ jobs:
               --json > "$RUNNER_TEMP/create-package.json" 2>&1
 
             COMMAND_STATUS=$?
+
+            set -e
 
             if [ "$COMMAND_STATUS" -ne 0 ]; then
               echo "ERROR: Package creation failed."
