@@ -116,7 +116,54 @@ jobs:
           sf org display --target-org devhub
 
       # --------------------------------------------------
-      # 8. Create package if it does not exist
+      # 8. Inject GitHub Environment Secret
+      # --------------------------------------------------
+      - name: Inject Environment Configuration
+        env:
+          ENVIRONMENT_VALUE: ${{ secrets.ENVIRONMENT_NAME }}
+        run: |
+          if [ -z "$ENVIRONMENT_VALUE" ]; then
+            echo "ERROR: ENVIRONMENT_NAME secret is empty."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          file_path = Path(
+              "force-app/main/default/customMetadata/"
+              "Deployment_Settings.Development.md-meta.xml"
+          )
+
+          placeholder = "__ENVIRONMENT_PLACEHOLDER__"
+          environment_value = os.environ["ENVIRONMENT_VALUE"]
+
+          if not file_path.exists():
+              raise SystemExit(
+                  f"ERROR: Metadata file not found: {file_path}"
+              )
+
+          content = file_path.read_text(encoding="utf-8")
+
+          if content.count(placeholder) != 1:
+              raise SystemExit(
+                  "ERROR: Expected exactly one environment placeholder."
+              )
+
+          content = content.replace(
+              placeholder,
+              environment_value
+          )
+
+          file_path.write_text(content, encoding="utf-8")
+
+          print("Environment configuration injected successfully.")
+          print("Environment value was not displayed.")
+          PY
+
+      # --------------------------------------------------
+      # 9. Create package if it does not exist
       # --------------------------------------------------
       - name: Create Unlocked Package
         run: |
@@ -172,7 +219,7 @@ jobs:
           echo "Package ID: $PACKAGE_ID"
 
       # --------------------------------------------------
-      # 9. Create 2GP package version
+      # 10. Create 2GP package version
       # --------------------------------------------------
       - name: Create 2GP Package Version
         run: |
@@ -219,7 +266,7 @@ jobs:
           echo "Subscriber Package Version ID: $PACKAGE_VERSION_ID"
 
       # --------------------------------------------------
-      # 10. Install package into Dev Hub org
+      # 11. Install package into Dev Hub org
       # --------------------------------------------------
       - name: Install Package
         run: |
@@ -232,7 +279,7 @@ jobs:
             --no-prompt
 
       # --------------------------------------------------
-      # 11. Verify package installation
+      # 12. Verify package installation
       # --------------------------------------------------
       - name: Verify Package Installation
         run: |
@@ -240,7 +287,7 @@ jobs:
             --target-org devhub
 
       # --------------------------------------------------
-      # 12. Cleanup private key
+      # 13. Cleanup private key
       # --------------------------------------------------
       - name: Cleanup JWT Key
         if: always()
