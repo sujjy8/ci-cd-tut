@@ -12,8 +12,5 @@
   "name": "salesforce-cicd",
   "namespace": "",
   "sfdcLoginUrl": "https://login.salesforce.com",
-  "sourceApiVersion": "66.0",
-  "packageAliases": {
-    "CustomMetadataPackage": "0HoXXXXXXXXXXXX"
-  }
+  "sourceApiVersion": "66.0"
 }

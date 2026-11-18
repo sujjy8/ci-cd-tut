@@ -49,14 +49,12 @@ jobs:
             exit 1
           fi
 
-          echo "Salesforce project found."
-
           if [ ! -d "force-app" ]; then
             echo "ERROR: force-app directory not found."
             exit 1
           fi
 
-          echo "Source directory found."
+          echo "Salesforce project validated."
 
       # --------------------------------------------------
       # 5. Configure JWT private key
@@ -85,13 +83,18 @@ jobs:
         env:
           SF_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
           SF_USERNAME: ${{ vars.SF_USERNAME }}
-          SF_DEVHUB_LOGIN_URL : ${{ vars.SF_DEVHUB_LOGIN_URL  }}
+          SF_DEVHUB_LOGIN_URL: ${{ vars.SF_DEVHUB_LOGIN_URL }}
         run: |
+          if [ -z "$SF_DEVHUB_LOGIN_URL" ]; then
+            echo "ERROR: SF_DEVHUB_LOGIN_URL is empty."
+            exit 1
+          fi
+
           sf org login jwt \
             --client-id "$SF_CLIENT_ID" \
             --jwt-key-file "$RUNNER_TEMP/salesforce/server.key" \
             --username "$SF_USERNAME" \
-            --instance-url "$SF_DEVHUB_LOGIN_URL " \
+            --instance-url "$SF_DEVHUB_LOGIN_URL" \
             --alias devhub \
             --set-default-dev-hub
 
@@ -103,28 +106,61 @@ jobs:
           sf org display --target-org devhub
 
       # --------------------------------------------------
-      # 8. Validate package alias
+      # 8. Create package if it does not exist
       # --------------------------------------------------
-      - name: Validate Package Configuration
-        env:
-          PACKAGE_ALIAS: ${{ vars.SF_PACKAGE_ALIAS }}
+      - name: Create Unlocked Package
         run: |
-          if [ -z "$PACKAGE_ALIAS" ]; then
-            echo "ERROR: SF_PACKAGE_ALIAS is not configured."
-            exit 1
+          PACKAGE_ID=$(jq -r \
+            '.packageAliases.CustomMetadataPackage // empty' \
+            sfdx-project.json)
+
+          if [ -z "$PACKAGE_ID" ]; then
+
+            echo "Package not found in sfdx-project.json."
+            echo "Creating unlocked package..."
+
+            sf package create \
+              --name "Custom Metadata Package" \
+              --package-type Unlocked \
+              --path force-app \
+              --target-dev-hub devhub \
+              --json > "$RUNNER_TEMP/create-package.json"
+
+            PACKAGE_ID=$(jq -r \
+              '.result.Id // empty' \
+              "$RUNNER_TEMP/create-package.json")
+
+            if [ -z "$PACKAGE_ID" ]; then
+              echo "ERROR: Package creation failed."
+              jq . "$RUNNER_TEMP/create-package.json"
+              exit 1
+            fi
+
+            echo "Package created successfully."
+
+            # Update package alias in project file
+            jq --arg id "$PACKAGE_ID" \
+              '.packageAliases.CustomMetadataPackage = $id' \
+              sfdx-project.json \
+              > "$RUNNER_TEMP/sfdx-project.json"
+
+            mv "$RUNNER_TEMP/sfdx-project.json" sfdx-project.json
+
+          else
+            echo "Existing package found."
           fi
 
-          echo "Package alias configured."
+          echo "PACKAGE_ID=$PACKAGE_ID" >> "$GITHUB_ENV"
+
+          echo "Package ID: $PACKAGE_ID"
 
       # --------------------------------------------------
       # 9. Create 2GP package version
       # --------------------------------------------------
       - name: Create 2GP Package Version
-        env:
-          PACKAGE_ALIAS: ${{ vars.SF_PACKAGE_ALIAS }}
         run: |
           sf package version create \
-            --package "$PACKAGE_ALIAS" \
+            --package "$PACKAGE_ID" \
             --target-dev-hub devhub \
             --installation-key-bypass \
             --wait 60 \
@@ -146,7 +182,7 @@ jobs:
           echo "Subscriber Package Version ID: $PACKAGE_VERSION_ID"
 
       # --------------------------------------------------
-      # 10. Install package into same Dev Hub org
+      # 10. Install package into Dev Hub org
       # --------------------------------------------------
       - name: Install Package
         run: |
@@ -173,4 +209,3 @@ jobs:
         if: always()
         run: |
           rm -f "$RUNNER_TEMP/salesforce/server.key"
-
