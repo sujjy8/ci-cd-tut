@@ -29,7 +29,7 @@ jobs:
       # PROD Environment Variables
       SF_USERNAME: ${{ vars.SF_USERNAME }}
       SF_DEVHUB_LOGIN_URL: ${{ vars.SF_DEVHUB_LOGIN_URL }}
-      SF_PACKAGE_NAME: ${{ vars.SF_PACKAGE_NAME }}
+      SF_PACKAGE_ALIAS: ${{ vars.SF_PACKAGE_ALIAS }}
       ENVIRONMENT_URL: ${{ vars.ENVIRONMENT_URL }}
 
     steps:
@@ -81,15 +81,15 @@ jobs:
             exit 1
           fi
 
-          if [ -z "$SF_PACKAGE_NAME" ]; then
-            echo "ERROR: SF_PACKAGE_NAME is not configured."
+          if [ -z "$SF_PACKAGE_ALIAS" ]; then
+            echo "ERROR: SF_PACKAGE_ALIAS is not configured."
             exit 1
           fi
 
           echo "Salesforce project validated."
           echo "Environment: $ENVIRONMENT_NAME"
           echo "Environment URL is configured."
-          echo "Package name: $SF_PACKAGE_NAME"
+          echo "Package name: $SF_PACKAGE_ALIAS"
 
       # --------------------------------------------------
       # 5. Configure JWT private key
@@ -155,7 +155,8 @@ jobs:
       - name: Create Unlocked Package
         run: |
           PACKAGE_ID=$(jq -r \
-            '.packageAliases.CustomMetadataPackage // empty' \
+            --arg alias "$SF_PACKAGE_ALIAS" \
+            '.packageAliases[$alias] // empty' \
             sfdx-project.json)
 
           if [ -z "$PACKAGE_ID" ]; then
@@ -166,7 +167,7 @@ jobs:
             set +e
 
             sf package create \
-              --name "$SF_PACKAGE_NAME" \
+              --name "$SF_PACKAGE_ALIAS" \
               --package-type Unlocked \
               --path force-app \
               --target-dev-hub devhub \
