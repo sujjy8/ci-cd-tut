@@ -1,0 +1,293 @@
+
+name: Salesforce 2GP Package - PROD Deployment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create-and-install-package:
+    name: Create and Install 2GP Package - PROD
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    # Select the PROD GitHub Environment.
+    # All secrets and variables below are resolved from PROD.
+    environment: PROD
+
+    # --------------------------------------------------
+    # GitHub Environment Configuration
+    # --------------------------------------------------
+    env:
+      # PROD Environment Secrets
+      SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+      ENVIRONMENT_NAME: ${{ secrets.ENVIRONMENT_NAME }}
+
+      # PROD Environment Variables
+      SF_USERNAME: ${{ vars.SF_USERNAME }}
+      SF_DEVHUB_LOGIN_URL: ${{ vars.SF_DEVHUB_LOGIN_URL }}
+      SF_PACKAGE_NAME: ${{ vars.SF_PACKAGE_NAME }}
+      ENVIRONMENT_URL: ${{ vars.ENVIRONMENT_URL }}
+
+    steps:
+
+      # --------------------------------------------------
+      # 1. Checkout repository
+      # --------------------------------------------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # 2. Install Node.js
+      # --------------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # --------------------------------------------------
+      # 3. Install Salesforce CLI
+      # --------------------------------------------------
+      - name: Install Salesforce CLI
+        run: |
+          npm install --global @salesforce/cli
+          sf --version
+
+      # --------------------------------------------------
+      # 4. Verify Salesforce project and configuration
+      # --------------------------------------------------
+      - name: Verify Salesforce Project
+        run: |
+          if [ ! -f "sfdx-project.json" ]; then
+            echo "ERROR: sfdx-project.json not found."
+            exit 1
+          fi
+
+          if [ ! -d "force-app" ]; then
+            echo "ERROR: force-app directory not found."
+            exit 1
+          fi
+
+          if [ -z "$ENVIRONMENT_NAME" ]; then
+            echo "ERROR: ENVIRONMENT_NAME is not configured."
+            exit 1
+          fi
+
+          if [ -z "$ENVIRONMENT_URL" ]; then
+            echo "ERROR: ENVIRONMENT_URL is not configured."
+            exit 1
+          fi
+
+          if [ -z "$SF_PACKAGE_NAME" ]; then
+            echo "ERROR: SF_PACKAGE_NAME is not configured."
+            exit 1
+          fi
+
+          echo "Salesforce project validated."
+          echo "Environment: $ENVIRONMENT_NAME"
+          echo "Environment URL is configured."
+          echo "Package name: $SF_PACKAGE_NAME"
+
+      # --------------------------------------------------
+      # 5. Configure JWT private key
+      # --------------------------------------------------
+      - name: Configure JWT Key
+        run: |
+          mkdir -p "$RUNNER_TEMP/salesforce"
+
+          if [ -z "$SF_JWT_KEY" ]; then
+            echo "ERROR: SF_JWT_KEY is empty."
+            exit 1
+          fi
+
+          printf '%s\n' "$SF_JWT_KEY" \
+            > "$RUNNER_TEMP/salesforce/server.key"
+
+          chmod 600 "$RUNNER_TEMP/salesforce/server.key"
+
+          openssl pkey \
+            -in "$RUNNER_TEMP/salesforce/server.key" \
+            -noout
+
+          echo "JWT private key validated."
+
+      # --------------------------------------------------
+      # 6. Authenticate to Dev Hub
+      # --------------------------------------------------
+      - name: Authenticate Dev Hub
+        run: |
+          if [ -z "$SF_DEVHUB_CLIENT_ID" ]; then
+            echo "ERROR: SF_DEVHUB_CLIENT_ID is empty."
+            exit 1
+          fi
+
+          if [ -z "$SF_USERNAME" ]; then
+            echo "ERROR: SF_USERNAME is empty."
+            exit 1
+          fi
+
+          if [ -z "$SF_DEVHUB_LOGIN_URL" ]; then
+            echo "ERROR: SF_DEVHUB_LOGIN_URL is empty."
+            exit 1
+          fi
+
+          sf org login jwt \
+            --client-id "$SF_DEVHUB_CLIENT_ID" \
+            --jwt-key-file "$RUNNER_TEMP/salesforce/server.key" \
+            --username "$SF_USERNAME" \
+            --instance-url "$SF_DEVHUB_LOGIN_URL" \
+            --alias devhub \
+            --set-default-dev-hub
+
+      # --------------------------------------------------
+      # 7. Verify Dev Hub authentication
+      # --------------------------------------------------
+      - name: Verify Dev Hub Authentication
+        run: |
+          sf org display --target-org devhub
+
+      # --------------------------------------------------
+      # 8. Create package if it does not exist
+      # --------------------------------------------------
+      - name: Create Unlocked Package
+        run: |
+          PACKAGE_ID=$(jq -r \
+            '.packageAliases.CustomMetadataPackage // empty' \
+            sfdx-project.json)
+
+          if [ -z "$PACKAGE_ID" ]; then
+
+            echo "Package not found in sfdx-project.json."
+            echo "Creating unlocked package..."
+
+            set +e
+
+            sf package create \
+              --name "$SF_PACKAGE_NAME" \
+              --package-type Unlocked \
+              --path force-app \
+              --target-dev-hub devhub \
+              --json > "$RUNNER_TEMP/create-package.json" 2>&1
+
+            COMMAND_STATUS=$?
+
+            set -e
+
+            if [ "$COMMAND_STATUS" -ne 0 ]; then
+              echo "ERROR: Package creation failed."
+              cat "$RUNNER_TEMP/create-package.json"
+              exit 1
+            fi
+
+            PACKAGE_ID=$(jq -r \
+              '.result.Id // empty' \
+              "$RUNNER_TEMP/create-package.json")
+
+            if [ -z "$PACKAGE_ID" ]; then
+              echo "ERROR: Package ID not found."
+              cat "$RUNNER_TEMP/create-package.json"
+              exit 1
+            fi
+
+            echo "Package created successfully."
+
+            jq --arg id "$PACKAGE_ID" \
+              '.packageAliases.CustomMetadataPackage = $id' \
+              sfdx-project.json \
+              > "$RUNNER_TEMP/sfdx-project.json"
+
+            mv "$RUNNER_TEMP/sfdx-project.json" sfdx-project.json
+
+          else
+            echo "Existing package found."
+          fi
+
+          echo "PACKAGE_ID=$PACKAGE_ID" >> "$GITHUB_ENV"
+
+          echo "Package ID: $PACKAGE_ID"
+
+      # --------------------------------------------------
+      # 9. Create 2GP package version
+      # --------------------------------------------------
+      - name: Create 2GP Package Version
+        run: |
+          echo "=========================================="
+          echo "Creating PROD Package Version"
+          echo "=========================================="
+
+          echo "Environment: $ENVIRONMENT_NAME"
+          echo "Environment URL is configured."
+          echo "Package ID: $PACKAGE_ID"
+
+          set +e
+
+          sf package version create \
+            --package "$PACKAGE_ID" \
+            --target-dev-hub devhub \
+            --installation-key-bypass \
+            --wait 60 \
+            --json > "$RUNNER_TEMP/package-version-result.json" 2>&1
+
+          COMMAND_STATUS=$?
+
+          set -e
+
+          echo "=========================================="
+          echo "Salesforce CLI Package Version Output"
+          echo "=========================================="
+
+          cat "$RUNNER_TEMP/package-version-result.json"
+
+          echo "=========================================="
+
+          if [ "$COMMAND_STATUS" -ne 0 ]; then
+            echo "ERROR: Package version creation failed."
+            echo "Exit code: $COMMAND_STATUS"
+            exit 1
+          fi
+
+          PACKAGE_VERSION_ID=$(jq -r \
+            '.result.SubscriberPackageVersionId // empty' \
+            "$RUNNER_TEMP/package-version-result.json")
+
+          if [ -z "$PACKAGE_VERSION_ID" ]; then
+            echo "ERROR: Subscriber Package Version ID not found."
+            exit 1
+          fi
+
+          echo "PACKAGE_VERSION_ID=$PACKAGE_VERSION_ID" >> "$GITHUB_ENV"
+
+          echo "Package version created successfully."
+          echo "Subscriber Package Version ID: $PACKAGE_VERSION_ID"
+
+      # --------------------------------------------------
+      # 10. Install package into Dev Hub org
+      # --------------------------------------------------
+      - name: Install Package
+        run: |
+          sf package install \
+            --package "$PACKAGE_VERSION_ID" \
+            --target-org devhub \
+            --wait 60 \
+            --publish-wait 10 \
+            --security-type AdminsOnly \
+            --no-prompt
+
+      # --------------------------------------------------
+      # 11. Verify package installation
+      # --------------------------------------------------
+      - name: Verify Package Installation
+        run: |
+          sf package installed list \
+            --target-org devhub
+
+      # --------------------------------------------------
+      # 12. Cleanup private key
+      # --------------------------------------------------
+      - name: Cleanup JWT Key
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/salesforce/server.key"

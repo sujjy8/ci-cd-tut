@@ -1,5 +1,5 @@
 
-name: Salesforce 2GP Package - Manual Deployment
+name: Salesforce 2GP Package - QA Deployment
 
 on:
   workflow_dispatch:
@@ -9,11 +9,28 @@ permissions:
 
 jobs:
   create-and-install-package:
-    name: Create and Install 2GP Package
+    name: Create and Install 2GP Package - QA
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
+    # Select the QA GitHub Environment.
+    # All secrets and variables below are resolved from QA.
     environment: QA
+
+    # --------------------------------------------------
+    # GitHub Environment Configuration
+    # --------------------------------------------------
+    env:
+      # QA Environment Secrets
+      SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
+      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+      ENVIRONMENT_NAME: ${{ secrets.ENVIRONMENT_NAME }}
+
+      # QA Environment Variables
+      SF_USERNAME: ${{ vars.SF_USERNAME }}
+      SF_DEVHUB_LOGIN_URL: ${{ vars.SF_DEVHUB_LOGIN_URL }}
+      SF_PACKAGE_NAME: ${{ vars.SF_PACKAGE_NAME }}
+      ENVIRONMENT_URL: ${{ vars.ENVIRONMENT_URL }}
 
     steps:
 
@@ -40,7 +57,7 @@ jobs:
           sf --version
 
       # --------------------------------------------------
-      # 4. Verify Salesforce project
+      # 4. Verify Salesforce project and configuration
       # --------------------------------------------------
       - name: Verify Salesforce Project
         run: |
@@ -54,16 +71,37 @@ jobs:
             exit 1
           fi
 
+          if [ -z "$ENVIRONMENT_NAME" ]; then
+            echo "ERROR: ENVIRONMENT_NAME is not configured."
+            exit 1
+          fi
+
+          if [ -z "$ENVIRONMENT_URL" ]; then
+            echo "ERROR: ENVIRONMENT_URL is not configured."
+            exit 1
+          fi
+
+          if [ -z "$SF_PACKAGE_NAME" ]; then
+            echo "ERROR: SF_PACKAGE_NAME is not configured."
+            exit 1
+          fi
+
           echo "Salesforce project validated."
+          echo "Environment: $ENVIRONMENT_NAME"
+          echo "Environment URL is configured."
+          echo "Package name: $SF_PACKAGE_NAME"
 
       # --------------------------------------------------
       # 5. Configure JWT private key
       # --------------------------------------------------
       - name: Configure JWT Key
-        env:
-          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY }}
         run: |
           mkdir -p "$RUNNER_TEMP/salesforce"
+
+          if [ -z "$SF_JWT_KEY" ]; then
+            echo "ERROR: SF_JWT_KEY is empty."
+            exit 1
+          fi
 
           printf '%s\n' "$SF_JWT_KEY" \
             > "$RUNNER_TEMP/salesforce/server.key"
@@ -80,12 +118,8 @@ jobs:
       # 6. Authenticate to Dev Hub
       # --------------------------------------------------
       - name: Authenticate Dev Hub
-        env:
-          SF_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
-          SF_USERNAME: ${{ vars.SF_USERNAME }}
-          SF_DEVHUB_LOGIN_URL: ${{ vars.SF_DEVHUB_LOGIN_URL }}
         run: |
-          if [ -z "$SF_CLIENT_ID" ]; then
+          if [ -z "$SF_DEVHUB_CLIENT_ID" ]; then
             echo "ERROR: SF_DEVHUB_CLIENT_ID is empty."
             exit 1
           fi
@@ -101,7 +135,7 @@ jobs:
           fi
 
           sf org login jwt \
-            --client-id "$SF_CLIENT_ID" \
+            --client-id "$SF_DEVHUB_CLIENT_ID" \
             --jwt-key-file "$RUNNER_TEMP/salesforce/server.key" \
             --username "$SF_USERNAME" \
             --instance-url "$SF_DEVHUB_LOGIN_URL" \
@@ -132,7 +166,7 @@ jobs:
             set +e
 
             sf package create \
-              --name "Custom Metadata Package" \
+              --name "$SF_PACKAGE_NAME" \
               --package-type Unlocked \
               --path force-app \
               --target-dev-hub devhub \
@@ -179,19 +213,16 @@ jobs:
       # 9. Create 2GP package version
       # --------------------------------------------------
       - name: Create 2GP Package Version
-        env:
-          ENVIRONMENT_NAME: ${{ secrets.ENVIRONMENT_NAME }}
         run: |
-          set +e
+          echo "=========================================="
+          echo "Creating QA Package Version"
+          echo "=========================================="
 
-          if [ -z "$ENVIRONMENT_NAME" ]; then
-            echo "ERROR: ENVIRONMENT_NAME is not configured in GitHub Environment QA."
-            exit 1
-          fi
-
-          echo "Environment configuration available."
-          echo "Creating package version for:"
+          echo "Environment: $ENVIRONMENT_NAME"
+          echo "Environment URL is configured."
           echo "Package ID: $PACKAGE_ID"
+
+          set +e
 
           sf package version create \
             --package "$PACKAGE_ID" \
@@ -201,6 +232,8 @@ jobs:
             --json > "$RUNNER_TEMP/package-version-result.json" 2>&1
 
           COMMAND_STATUS=$?
+
+          set -e
 
           echo "=========================================="
           echo "Salesforce CLI Package Version Output"

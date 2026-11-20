@@ -8,4 +8,8 @@
         <field>Environment__c</field>
         <value xsi:type="xsd:string">__ENVIRONMENT_PLACEHOLDER__</value>
     </values>
+    <values>
+    <field>Environment_URL__c</field>
+    <value xsi:type="xsd:string">__ENVIRONMENT_URL_PLACEHOLDER__</value>
+    </values>
 </CustomMetadata>

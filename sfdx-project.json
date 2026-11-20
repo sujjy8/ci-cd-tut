@@ -22,6 +22,12 @@
       "stringToReplace": "__ENVIRONMENT_PLACEHOLDER__",
       "replaceWithEnv": "ENVIRONMENT_NAME",
       "allowUnsetEnvVariable": false
-    }
+    },
+     {
+    "filename": "force-app/main/default/customMetadata/Deployment_Settings.Development.md-meta.xml",
+    "stringToReplace": "__ENVIRONMENT_URL_PLACEHOLDER__",
+    "replaceWithEnv": "ENVIRONMENT_URL",
+    "allowUnsetEnvVariable": false
+  }
   ]
 }
